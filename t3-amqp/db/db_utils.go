@@ -5,55 +5,15 @@ import (
 	"fmt"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/spf13/viper"
+	"golang.org/x/crypto/bcrypt"
 	"log"
 	"strings"
+	"t3-amqp/cfg"
 	"time"
 )
 
-// Config struct to hold database connection info
-type Config struct {
-	DB struct {
-		Host     string `mapstructure:"host"`
-		Port     int    `mapstructure:"port"`
-		User     string `mapstructure:"user"`
-		Password string `mapstructure:"password"`
-		DBName   string `mapstructure:"dbname"`
-		SSLMode  string `mapstructure:"sslmode"`
-	} `mapstructure:"db"`
-}
-
-// LoadConfig loads configuration from the config.yaml file
-func LoadConfig() (*Config, error) {
-	var config Config
-
-	err := viper.BindEnv("CONFIG_PATH")
-	if err != nil {
-		return nil, err
-	}
-
-	// Get the config path from the environment variable
-	configPath := viper.GetString("CONFIG_PATH")
-	if configPath == "" {
-		return nil, fmt.Errorf("CONFIG_PATH environment variable is not set")
-	}
-
-	viper.SetConfigFile(configPath)
-	err = viper.ReadInConfig()
-	if err != nil {
-		return nil, fmt.Errorf("error reading config file: %w", err)
-	}
-
-	err = viper.Unmarshal(&config)
-	if err != nil {
-		return nil, fmt.Errorf("unable to decode into struct: %w", err)
-	}
-
-	return &config, nil
-}
-
 // ConnectDB creates a connection pool to the PostgreSQL database
-func ConnectDB(config *Config) (*pgxpool.Pool, error) {
+func ConnectDB(config *cfg.Config) (*pgxpool.Pool, error) {
 	connStr := fmt.Sprintf(
 		"postgres://%s:%s@%s:%d/%s?sslmode=%s",
 		config.DB.User, config.DB.Password, config.DB.Host, config.DB.Port, config.DB.DBName,
@@ -69,7 +29,7 @@ func ConnectDB(config *Config) (*pgxpool.Pool, error) {
 }
 
 // InsertSchema inserts a new schema into the s1.schema table
-func InsertSchema(pool *pgxpool.Pool, params QueryArgs) (int, error) {
+func InsertSchema(pool *pgxpool.Pool, params QueryArgs) (int64, error) {
 
 	created := time.Now().UTC()
 	modified := created
@@ -85,7 +45,7 @@ func InsertSchema(pool *pgxpool.Pool, params QueryArgs) (int, error) {
 
 	query := `INSERT INTO s1.schema (name, type, version, schema_data, created, modified) 
 			VALUES (@name, @type, @version, @schema_data, @created, @modified) RETURNING id`
-	var id int
+	var id int64
 	err := pool.QueryRow(context.Background(), query, args).Scan(&id)
 
 	if err != nil {
@@ -95,7 +55,7 @@ func InsertSchema(pool *pgxpool.Pool, params QueryArgs) (int, error) {
 }
 
 // GetSchemaById retrieves a schema by its ID from the s1.schema table
-func GetSchemaById(pool *pgxpool.Pool, id int) (*Schema, error) {
+func GetSchemaById(pool *pgxpool.Pool, id int64) (*Schema, error) {
 	args := pgx.NamedArgs{
 		"id": id,
 	}
@@ -108,7 +68,7 @@ func GetSchemaById(pool *pgxpool.Pool, id int) (*Schema, error) {
 	row := pool.QueryRow(context.Background(), query, args)
 
 	var schema Schema
-	err := row.Scan(&schema.ID, &schema.Name, &schema.Type, &schema.Version, &schema.SchemaData)
+	err := row.Scan(&schema.ID, &schema.Name, &schema.Type, &schema.Version, &schema.SchemaData, &schema.Created, &schema.Modified)
 	if err != nil {
 		return nil, fmt.Errorf("error getting schema: %w", err)
 	}
@@ -212,7 +172,7 @@ func UpdateSchema(pool *pgxpool.Pool, params QueryArgs) ([]Schema, error) {
 }
 
 // DeleteSchema deletes a schema from the s1.schema table
-func DeleteSchema(pool *pgxpool.Pool, id int) error {
+func DeleteSchema(pool *pgxpool.Pool, id int64) error {
 	args := pgx.NamedArgs{
 		"id": id,
 	}
@@ -220,6 +180,23 @@ func DeleteSchema(pool *pgxpool.Pool, id int) error {
 	query := `
 		DELETE FROM s1.schema 
 		WHERE id = @id`
+
+	_, err := pool.Exec(context.Background(), query, args)
+	if err != nil {
+		return fmt.Errorf("error deleting schema: %w", err)
+	}
+	return nil
+}
+
+// Delete Schema by Name and support a wildcard
+func DeleteSchemaByName(pool *pgxpool.Pool, name string) error {
+	args := pgx.NamedArgs{
+		"name": name,
+	}
+
+	query := `
+		DELETE FROM s1.schema 
+		WHERE name LIKE @name`
 
 	_, err := pool.Exec(context.Background(), query, args)
 	if err != nil {
@@ -252,11 +229,104 @@ func GetAllSchemas(pool *pgxpool.Pool) ([]Schema, error) {
 	return schemas, nil
 }
 
+// ValidatePassword checks if the provided password matches the hashed password stored in the database.
+func ValidateUserByUsername(pool *pgxpool.Pool, username string, password string) (bool, error) {
+	var hashedPassword string
+
+	query := `SELECT password FROM s1.user_account WHERE username = $1`
+	err := pool.QueryRow(context.Background(), query, username).Scan(&hashedPassword)
+	if err != nil {
+		return false, fmt.Errorf("error querying user account: %w", err)
+	}
+
+	err = bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(password))
+	if err != nil {
+		return false, fmt.Errorf("invalid password: %w", err)
+	}
+
+	return true, nil
+}
+
+// ValidatePassword by email
+func ValidateUserByEmail(pool *pgxpool.Pool, email string, password string) (bool, error) {
+	var hashedPassword string
+
+	query := `SELECT password FROM s1.user_account WHERE email = $1`
+	err := pool.QueryRow(context.Background(), query, email).Scan(&hashedPassword)
+	if err != nil {
+		return false, fmt.Errorf("error querying user account: %w", err)
+	}
+
+	err = bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(password))
+	if err != nil {
+		return false, fmt.Errorf("invalid password: %w", err)
+	}
+
+	return true, nil
+}
+
+// add a user to the user account table using a post request including the email, username, and password
+func AddUser(pool *pgxpool.Pool, email string, username string, password string) error {
+	// using bcrypt to hash the password
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+
+	query := `INSERT INTO s1.user_account (email, username, password) VALUES ($1, $2, $3)`
+	_, err = pool.Exec(context.Background(), query, email, username, hashedPassword)
+	if err != nil {
+		return fmt.Errorf("error inserting user account: %w", err)
+	}
+	return nil
+}
+
+// Query a list of users excluding the password
+func GetAllUsers(pool *pgxpool.Pool) ([]User, error) {
+	query := `SELECT id, email, username FROM s1.user_account`
+	rows, err := pool.Query(context.Background(), query)
+	if err != nil {
+		return nil, fmt.Errorf("error querying users: %w", err)
+	}
+	defer rows.Close()
+
+	var users []User
+	for rows.Next() {
+		var user User
+		err := rows.Scan(&user.ID, &user.Email, &user.Username)
+		if err != nil {
+			return nil, fmt.Errorf("error scanning user: %w", err)
+		}
+		users = append(users, user)
+	}
+
+	return users, nil
+}
+
+// Delete a user from the user account table by username
+func DeleteUser(pool *pgxpool.Pool, username string) error {
+	query := `DELETE FROM s1.user_account WHERE username = $1`
+	_, err := pool.Exec(context.Background(), query, username)
+	if err != nil {
+		return fmt.Errorf("error deleting user account: %w", err)
+	}
+	return nil
+}
+
+// Delete a user by username
+func DeleteUserByEmail(pool *pgxpool.Pool, email string) error {
+	query := `DELETE FROM s1.user_account WHERE email = $1`
+	_, err := pool.Exec(context.Background(), query, email)
+	if err != nil {
+		return fmt.Errorf("error deleting user account: %w", err)
+	}
+	return nil
+}
+
+// ============== MAIN FUNCTION ==============
+
 func main() {
 	// Load configuration
-	config, err := LoadConfig()
+	config, err := cfg.LoadConfig()
 	if err != nil {
-		log.Fatalf("Failed to load config: %v", err)
+		log.Fatalf("Failed to load cfg: %v", err)
 	}
 
 	// Connect to the database

@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"t3-amqp/cfg"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -10,9 +11,9 @@ import (
 )
 
 func setupTestDB(t *testing.T) *pgxpool.Pool {
-	config, err := LoadConfig()
+	config, err := cfg.LoadConfig()
 	if err != nil {
-		t.Fatalf("Failed to load config: %v", err)
+		t.Fatalf("Failed to load cfg: %v", err)
 	}
 
 	pool, err := ConnectDB(config)
@@ -300,4 +301,117 @@ func TestGetAllSchemas(t *testing.T) {
 			t, schema.SchemaData, retrievedSchemas[i].SchemaData, "Schema data should match",
 		)
 	}
+}
+
+// Test to add a new user
+func TestInsertUser(t *testing.T) {
+	pool := setupTestDB(t)
+	defer pool.Close()
+
+	email := "heather@mymail.com"
+	username := "heather"
+	password := "password"
+
+	err := AddUser(pool, email, username, password)
+	assert.NoError(t, err, "AddUser should not return an error")
+
+	// delete the user
+	err = DeleteUser(pool, username)
+	assert.NoError(t, err, "DeleteUser should not return an error")
+
+}
+
+// Test to get all users
+func TestGetUsers(t *testing.T) {
+	pool := setupTestDB(t)
+	defer pool.Close()
+
+	//populate a User struct
+	user1 := User{
+		Email:    "heather@mymail.com",
+		Username: "heather",
+		Password: "password",
+	}
+	user2 := User{
+		Email:    "denver@mymail.com",
+		Username: "denver",
+		Password: "password",
+	}
+	user3 := User{
+		Email:    "nova@mymail.com",
+		Username: "nova",
+		Password: "password",
+	}
+
+	// Insert multiple users for testing
+	users := []User{user1, user2, user3}
+	for _, user := range users {
+		err := AddUser(pool, user.Email, user.Username, user.Password)
+		assert.NoError(t, err, "AddUser should not return an error")
+	}
+
+	// Retrieve all users
+	retrievedUsers, err := GetAllUsers(pool)
+	assert.NoError(t, err, "GetAllUsers should not return an error")
+	assert.Len(
+		t, retrievedUsers, len(users),
+		"The number of retrieved users should match the number of inserted users",
+	)
+
+	// delete the users
+	for _, user := range users {
+		err := DeleteUser(pool, user.Username)
+		assert.NoError(t, err, "DeleteUser should not return an error")
+	}
+
+}
+
+// Test to validate user login credentials
+func TestValidateUserByUsername(t *testing.T) {
+	pool := setupTestDB(t)
+	defer pool.Close()
+
+	email := "heather@mymail.com"
+	username := "heather"
+	password := "password"
+
+	// Insert a user for testing
+	err := AddUser(pool, email, username, password)
+	assert.NoError(t, err, "AddUser should not return an error")
+
+	// Validate user credentials
+	var valid bool
+	valid, err = ValidateUserByUsername(pool, username, password)
+	assert.NoError(t, err, "ValidateUserByUsername should not return an error")
+	assert.True(t, valid, "User credentials should be valid")
+
+	// delete the user
+	err = DeleteUser(pool, username)
+	assert.NoError(t, err, "DeleteUser should not return an error")
+
+}
+
+// Test to validate user by email
+func TestValidateUserByEmail(t *testing.T) {
+	pool := setupTestDB(t)
+	defer pool.Close()
+
+	email := "heather@mymail.com"
+	username := "heather"
+	password := "password"
+
+	// Insert a user for testing
+	err := AddUser(pool, email, username, password)
+	assert.NoError(t, err, "AddUser should not return an error")
+
+	// Validate user credentials
+	var valid bool
+	valid, err = ValidateUserByEmail(pool, email, password)
+	assert.NoError(t, err, "ValidateUserByEmail should not return an error")
+	assert.True(t, valid, "User credentials should be valid")
+
+	// delete the user
+	err = DeleteUser(pool, username)
+	assert.NoError(t, err, "DeleteUser should not return an error")
+
 }

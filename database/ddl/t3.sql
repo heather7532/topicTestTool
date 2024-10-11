@@ -15,6 +15,22 @@ CREATE TABLE s1.schema (
                            modified    timestamp
 );
 
+-- Create a schema for a user account table tied to the user credentials
+CREATE TABLE s1.user_account (
+                                 id SERIAL PRIMARY KEY,
+                                 username VARCHAR(255) NOT NULL,
+                                 password VARCHAR(255) NOT NULL,
+                                 email VARCHAR(255) NOT NULL,
+                                 created timestamp,
+                                 modified timestamp
+);
+
+
 ALTER TABLE s1.schema
     ADD CONSTRAINT unique_name_type_version
         UNIQUE (name, type, version);
+
+-- Add unique constraint to the user_account table on the username and email columns
+ALTER TABLE s1.user_account
+    ADD CONSTRAINT unique_username_email
+        UNIQUE (username, email);

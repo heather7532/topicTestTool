@@ -5,3 +5,11 @@ db:
   password: "start123"
   dbname: "t3"
   sslmode: "disable"
+
+server:
+    port: 8080
+    host: "localhost"
+    ssl-enabled: false
+    ssl-cert: "cert.pem"
+    ssl-key: "key.pem"
+

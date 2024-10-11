@@ -18,3 +18,13 @@ type Schema struct {
 	Created    time.Time
 	Modified   time.Time
 }
+
+// User type belongs to the user table
+type User struct {
+	ID       int
+	Username string
+	Password string
+	Email    string
+	Created  time.Time
+	Modified time.Time
+}
