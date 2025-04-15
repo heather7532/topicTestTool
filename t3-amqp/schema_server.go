@@ -14,10 +14,12 @@ import (
 
 func main() {
 	// Set up the logger
-	log.SetFormatter(&log.TextFormatter{
-		DisableColors: false,
-		FullTimestamp: true,
-	})
+	log.SetFormatter(
+		&log.TextFormatter{
+			DisableColors: false,
+			FullTimestamp: true,
+		},
+	)
 	log.SetLevel(log.DebugLevel)
 	log.SetOutput(os.Stdout)
 
@@ -41,6 +43,8 @@ func main() {
 	http.HandleFunc("/schemas", rest.GetAllSchemasHandler(pool).ServeHTTP)
 	http.HandleFunc("/user", rest.UserEndpointHandler(pool).ServeHTTP)
 	http.HandleFunc("/user/validate", rest.ValidateUserHandler(pool).ServeHTTP)
+	http.HandleFunc("/artifacts/load", rest.LoadArtifactsHandler().ServeHTTP)
+	http.HandleFunc("/artifacts/file", rest.ReadFileHandler().ServeHTTP)
 
 	// Start the HTTP server
 	address := net.JoinHostPort(config.Server.Host, strconv.Itoa(config.Server.Port))

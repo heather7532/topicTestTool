@@ -10,6 +10,7 @@ import (
 func TestLoadConfig(t *testing.T) {
 	// Set the T3_CONFIG environment variable to point to the test cfg file
 	os.Setenv("T3_CONFIG", "config.yaml")
+	os.Setenv("T3_ROOT", "/path/to/t3")
 
 	// Load the configuration
 	config, err := LoadConfig()
@@ -28,4 +29,7 @@ func TestLoadConfig(t *testing.T) {
 	assert.False(t, false, config.Server.SSLEnabled, "Server SSL enabled should be false")
 	assert.Equal(t, "cert.pem", config.Server.SSLCert, "Server SSL cert should be 'cert.pem'")
 	assert.Equal(t, "key.pem", config.Server.SSLKey, "Server SSL key should be 'key.pem'")
+	// Validate the T3_ROOT environment variable
+	assert.Equal(t, "/path/to/t3", os.Getenv("T3_ROOT"), "T3_ROOT should be set to '/path/to/t3'")
+
 }

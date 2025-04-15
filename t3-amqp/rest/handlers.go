@@ -4,8 +4,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/jackc/pgx/v5/pgxpool"
+	log "github.com/sirupsen/logrus"
 	"net/http"
+	"os"
 	"t3-amqp/db"
+	pfs "t3-amqp/persistence/file_system"
+	"t3-amqp/types"
 )
 
 // imlement a health check handler that will verify the datbase is avalable
@@ -47,7 +51,7 @@ func UserEndpointHandler(pool *pgxpool.Pool) http.HandlerFunc {
 			GetAllUsersHandler(pool).ServeHTTP(w, r)
 		case http.MethodPost:
 			PostUserHandler(pool).ServeHTTP(w, r)
-		//case http.MethodPut: PutUserHandler(pool).ServeHTTP(w, r)
+		// case http.MethodPut: PutUserHandler(pool).ServeHTTP(w, r)
 		default:
 
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -231,19 +235,124 @@ func ValidateUserHandler(pool *pgxpool.Pool) http.HandlerFunc {
 
 		valid, err := db.ValidateUserByEmail(pool, req.Email, req.Password)
 		if err != nil {
-			fmt.Println("ValidateUserHandler: ", "Not Found ", req.Email)
+			log.Info(fmt.Println("ValidateUserHandler: ", "Not Found ", req.Email))
 			http.Error(w, "Access Denied", http.StatusNotFound)
 			return
 		}
 		// if valid is true, return a 200 status code otherwise return a 404 status code
 		if valid {
-			fmt.Println("ValidateUserHandler: ", "Access Validated", req.Email)
+			log.Info(fmt.Println("ValidateUserHandler: ", "Access Validated", req.Email))
 			w.WriteHeader(http.StatusOK)
 		} else {
-			fmt.Println("ValidateUserHandler: ", "Access Denied", req.Email)
+			log.Warning(fmt.Println("ValidateUserHandler: ", "Access Denied", req.Email))
 			http.Error(w, "Access Denied", http.StatusNotFound)
 		}
 
 		w.WriteHeader(http.StatusOK)
 	}
+}
+
+// LoadArtifactsHandler Add a new handler function that will do a GET request to the /artifacts/load endpoint which will do a ReadDirectory
+func LoadArtifactsHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		root := os.Getenv("T3_ROOT")
+		if root == "" {
+			// return a bad request status code if the T3_ROOT environment variable is not set
+			http.Error(w, "T3_ROOT environment variable is not set", http.StatusBadRequest)
+			return
+		}
+		node, err := pfs.ReadDirectory(root)
+		if err != nil {
+			http.Error(w, "failed to read directory", http.StatusInternalServerError)
+			return
+		}
+		// Add the ID to the node
+		AddID(node, 1, 1)
+
+		// Print the contents of the node
+		PrintNode(node)
+
+		w.Header().Set("Content-Type", "application/json")
+		err = json.NewEncoder(w).Encode(NodeToArray(node))
+		if err != nil {
+			return
+		}
+	}
+}
+
+func ReadFileHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		path := r.URL.Query().Get("path")
+		if path == "" {
+			http.Error(w, "path is required", http.StatusBadRequest)
+			return
+		}
+		data, err := pfs.ReadFile(path)
+		if err != nil {
+			http.Error(w, "failed to read file", http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		err = json.NewEncoder(w).Encode(data)
+		if err != nil {
+			return
+		}
+	}
+}
+
+// WriteFileHandler Process a POST request to the /file/write endpoint using FileData struct in the request body to write the file
+func WriteFileHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req types.FileData
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		err := pfs.WriteFile(req)
+		if err != nil {
+			http.Error(w, "failed to write file", http.StatusInternalServerError)
+			return
+		}
+
+		w.WriteHeader(http.StatusOK)
+	}
+}
+
+func AddID(node *types.FileNode, level int, id int) int {
+	node.ID = fmt.Sprintf("%d", id)
+	id++
+	for _, child := range node.Children {
+		id = AddID(child, level+1, id)
+	}
+	return id
+}
+
+// Function to recursively print the contents of a FileNode
+func PrintNode(node *types.FileNode) {
+	log.Info(fmt.Println(PrintNodeFormatted(node, 0)))
+}
+
+// function to build a formatted string of FileNode that indents based on the level
+func PrintNodeFormatted(node *types.FileNode, level int) string {
+	var result string
+	for i := 0; i < level; i++ {
+		result += "  "
+	}
+	result += fmt.Sprintf("%s (%s)\n", node.Name, node.ID)
+	for _, child := range node.Children {
+		result += PrintNodeFormatted(child, level+1)
+	}
+	return result
+}
+
+// function to convert FileNode to an array of FileNode
+func NodeToArray(node *types.FileNode) []*types.FileNode {
+	var nodes []*types.FileNode
+	nodes = append(nodes, node)
+	// for _, child := range node.Children {
+	// 	nodes = append(nodes, NodeToArray(child)...)
+	// }
+	return nodes
 }

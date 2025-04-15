@@ -13,6 +13,10 @@ func LoadConfig() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	err = viper.BindEnv("T3_ROOT")
+	if err != nil {
+		return nil, err
+	}
 
 	// Get the cfg path from the environment variable
 	configPath := viper.GetString("CONFIG_PATH")
@@ -24,6 +28,12 @@ func LoadConfig() (*Config, error) {
 	err = viper.ReadInConfig()
 	if err != nil {
 		return nil, fmt.Errorf("error reading cfg file: %w", err)
+	}
+
+	// get T3_ROOT from the environment
+	t3Root := viper.GetString("T3_ROOT")
+	if t3Root == "" {
+		return nil, fmt.Errorf("T3_ROOT environment variable is not set")
 	}
 
 	err = viper.Unmarshal(&config)
